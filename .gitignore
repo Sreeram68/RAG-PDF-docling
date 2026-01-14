@@ -1,0 +1,41 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Data files (keep structure with README, ignore content)
+data/source_pdfs/*.pdf
+data/processed_markdown/*.md
+data/processed_markdown/*.json
+!data/source_pdfs/README.md
+!data/processed_markdown/README.md
+!data/vector_store/README.md
+
+# Vector store (all data files)
+data/vector_store/chroma.sqlite3
+data/vector_store/*/
+
+# Model cache
+.cache/
+models/
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/

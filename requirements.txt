@@ -1,0 +1,21 @@
+# Core dependencies for RAG pipeline
+docling>=2.15.0          # IBM's document understanding library
+docling-core>=2.21.0     # Core Docling components
+
+# BGE-M3 embeddings
+FlagEmbedding>=1.2.0     # BGE-M3 model wrapper
+
+# Vector store
+chromadb>=0.4.0          # Local vector database
+
+# ML/DL frameworks
+torch>=2.0.0             # PyTorch for model inference
+transformers>=4.35.0     # Hugging Face transformers
+
+# Utilities
+numpy>=1.24.0            # Numerical operations
+tqdm>=4.65.0             # Progress bars
+
+# Optional: For serving the RAG API
+# fastapi>=0.104.0
+# uvicorn>=0.24.0
