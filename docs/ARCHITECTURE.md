@@ -201,11 +201,37 @@ This document describes the design, concepts, and logical flow of the RAG (Retri
                                       │
                                       ▼
                     ┌─────────────────────────────────────┐
+                    │   Query Classification              │
+                    │   ┌───────────────────────────────┐ │
+                    │   │ • Health query detection      │ │
+                    │   │ • Multi-year comparison?      │ │
+                    │   │ • Extract years mentioned     │ │
+                    │   └───────────────────────────────┘ │
+                    └─────────────────────────────────────┘
+                                      │
+                         ┌────────────┴────────────┐
+                         ▼                         ▼
+              ┌──────────────────┐      ┌──────────────────┐
+              │  Single Year     │      │  Multi-Year      │
+              │  Standard Search │      │  Comparison      │
+              └──────────────────┘      └──────────────────┘
+                         │                         │
+                         │                         ▼
+                         │              ┌──────────────────┐
+                         │              │ Per-Year Search  │
+                         │              │ • Search "hemoglobin 2021" │
+                         │              │ • Search "hemoglobin 2024" │
+                         │              │ • Merge & dedupe │
+                         │              └──────────────────┘
+                         │                         │
+                         └────────────┬────────────┘
+                                      ▼
+                    ┌─────────────────────────────────────┐
                     │   Vector Similarity Search          │
                     │   ┌───────────────────────────────┐ │
                     │   │ • Cosine similarity           │ │
-                    │   │ • top_k = 15 results          │ │
-                    │   │ • threshold = 0.2             │ │
+                    │   │ • top_k = 15-50 results       │ │
+                    │   │ • threshold = 0.05-0.2       │ │
                     │   └───────────────────────────────┘ │
                     └─────────────────────────────────────┘
                                       │
@@ -306,6 +332,69 @@ This document describes the design, concepts, and logical flow of the RAG (Retri
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+## Multi-Year Comparison Strategy
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│               Query: "Compare my hemoglobin between 2021 and 2024"              │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                          Query Classification                                   │
+│  ┌────────────────────────────────────────────────────────────────────────────┐ │
+│  │  1. Detect health keywords: "hemoglobin" ✓                                 │ │
+│  │  2. Detect comparison: "compare" or multiple years ✓                       │ │
+│  │  3. Extract years: [2021, 2024]                                            │ │
+│  └────────────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                        Per-Year Separate Searches                               │
+│  ┌──────────────────────────────┐  ┌──────────────────────────────┐            │
+│  │ Search: "hemoglobin 2021"   │  │ Search: "hemoglobin 2024"   │            │
+│  │ Filter: source contains     │  │ Filter: source contains     │            │
+│  │         "2021"              │  │         "2024"              │            │
+│  │ Results: 10 chunks from     │  │ Results: 5 chunks from      │            │
+│  │ 2021 health check           │  │ 2024 health check           │            │
+│  └──────────────────────────────┘  └──────────────────────────────┘            │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                         Interleaved Context Building                            │
+│  ┌────────────────────────────────────────────────────────────────────────────┐ │
+│  │  Position 0: 2021 chunk (hemoglobin: 15.3 g/dL)                            │ │
+│  │  Position 1: 2024 chunk (hemoglobin: 14.9 g/dL)                            │ │
+│  │  Position 2: 2021 chunk (other blood tests)                                │ │
+│  │  Position 3: 2024 chunk (other blood tests)                                │ │
+│  │  ...                                                                       │ │
+│  └────────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                 │
+│  Benefits: LLM sees data from BOTH years early in context                       │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                          Comparison-Optimized Prompt                            │
+│  ┌────────────────────────────────────────────────────────────────────────────┐ │
+│  │  "Find the requested test values for EACH year mentioned.                  │ │
+│  │   Look carefully at EVERY document section.                                │ │
+│  │   Report values from all years found."                                     │ │
+│  └────────────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                               LLM Answer                                        │
+│  ┌────────────────────────────────────────────────────────────────────────────┐ │
+│  │  "2021: Hemoglobin was 15.3 g/dL                                           │ │
+│  │   2024: Hemoglobin was 14.9 g/dL"                                          │ │
+│  └────────────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
 ## Module Dependencies
 
 ```
@@ -377,6 +466,12 @@ This document describes the design, concepts, and logical flow of the RAG (Retri
 - **No API costs**: Run unlimited queries
 - **Offline capable**: Works without internet
 - **Customizable**: Choose any compatible model
+
+### 5. Why year-aware context retrieval?
+- **Multi-year comparisons**: Compare health metrics across different years
+- **Intelligent filtering**: Prioritizes documents matching years in query
+- **Interleaved context**: Balances data from different years for LLM
+- **Health query optimization**: Auto-detects medical queries for better recall
 
 ## Performance Characteristics
 

@@ -14,6 +14,7 @@ Traditional PDF extraction tools often fail with:
 - **IBM Docling**: A vision-based document understanding library that "sees" the document like a human would
 - **BGE-M3 Embeddings**: State-of-the-art multilingual embeddings with excellent semantic understanding
 - **ChromaDB**: Fast, local vector database that requires no external services
+- **Intelligent Year-Aware Retrieval**: Automatically detects and retrieves data from specific years for comparison queries
 
 ### Use Cases
 
@@ -200,6 +201,13 @@ python example_usage.py --ask "What is my HbA1c value from 2024?"
 python example_usage.py --ask "What is my fasting glucose level?"
 python example_usage.py --ask "What is my total cholesterol value?"
 python example_usage.py --ask "What is my hemoglobin level from the 2024 health check?"
+```
+
+**Compare values across years:**
+```bash
+# The pipeline intelligently retrieves data from multiple years
+python example_usage.py --ask "Compare my hemoglobin values between 2021 and 2024"
+python example_usage.py --ask "How has my HbA1c changed from 2021 to 2024?"
 ```
 
 **Example queries for financial documents:**
