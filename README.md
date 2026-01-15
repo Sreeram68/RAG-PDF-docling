@@ -183,13 +183,47 @@ This will:
 python -m src.rag_pipeline --query "What is the quarterly revenue?"
 ```
 
-### 4. Check Statistics
+### 4. Ask Questions with LLM-Powered Answers
+
+Get direct answers using a local LLM (requires [Ollama](https://ollama.ai/)):
+
+```bash
+# Install Ollama and pull a model first
+ollama pull gemma3:12b
+
+# Ask questions and get direct answers
+python example_usage.py --ask "What is my HbA1c value from 2024?"
+```
+
+**Example queries for health records:**
+```bash
+python example_usage.py --ask "What is my fasting glucose level?"
+python example_usage.py --ask "What is my total cholesterol value?"
+python example_usage.py --ask "What is my hemoglobin level from the 2024 health check?"
+```
+
+**Example queries for financial documents:**
+```bash
+python example_usage.py --ask "What was the Q4 revenue?"
+python example_usage.py --ask "What is the gross profit margin?"
+```
+
+### 5. Force Reprocess Documents
+
+If you've updated the chunking strategy or need to reprocess:
+
+```bash
+# Clear vector store and reprocess all documents
+python example_usage.py --ingest --force-reprocess
+```
+
+### 6. Check Statistics
 
 ```bash
 python -m src.rag_pipeline --stats
 ```
 
-### 5. Run Example Script
+### 7. Run Example Script
 
 ```bash
 python example_usage.py
@@ -353,7 +387,219 @@ python -m src.rag_pipeline --ingest
 python -m src.rag_pipeline --query "summary"
 ```
 
-### Getting Help
+---
+
+### Advanced Troubleshooting
+
+#### 11. Empty Answers from `--ask` Queries
+
+**Symptoms**: The `--ask` command returns empty answers or "Not found" even though the data exists in the documents.
+
+**Diagnosis Steps**:
+
+1. **Check if markdown files contain actual content**:
+   ```bash
+   # View the processed markdown
+   cat data/processed_markdown/your_document.md  # Linux/macOS
+   type data\processed_markdown\your_document.md  # Windows
+   ```
+   
+   If you see raw JSON like `{"schema_name": "DoclingDocument", ...}` instead of clean markdown, the document wasn't processed correctly.
+
+2. **Force reprocess all documents**:
+   ```bash
+   # Clear vector store first
+   rm -rf data/vector_store/*  # Linux/macOS
+   Remove-Item -Recurse -Force data\vector_store\*  # Windows
+   
+   # Reprocess with force flag
+   python example_usage.py --ingest --force-reprocess
+   ```
+
+3. **Check the retrieval threshold**: The default threshold (0.5) might be too high. In `src/rag_pipeline.py`, the `answer()` method uses `threshold=0.2` for better recall.
+
+**Root Cause**: The `document_processor.py` was saving the method reference instead of calling it:
+```python
+# Bug (wrong)
+"num_pages": result.document.num_pages
+
+# Fix (correct)  
+"num_pages": result.document.num_pages()
+```
+
+#### 12. Tables Split Mid-Row (Health Check / Financial Data Issues)
+
+**Symptoms**: Queries for specific test values (like HbA1c, cholesterol, glucose) return incorrect or partial results because table rows are split across chunks.
+
+**Example**: A health check table like:
+```
+| Test | Result | Unit |
+|------|--------|------|
+| HbA1c | 5.7 | % |
+| Glucose | 106 | mg/dL |
+```
+
+Gets split into separate chunks, breaking the row context.
+
+**Solution**: The `TextChunker` now uses table-aware chunking that:
+- Detects markdown tables automatically
+- Keeps entire tables as single chunks (up to 4000 characters)
+- For very large tables, splits by rows while preserving the header in each chunk
+
+**To apply the fix**:
+```bash
+# Clear vector store
+Remove-Item -Recurse -Force data\vector_store\*  # Windows
+rm -rf data/vector_store/*  # Linux/macOS
+
+# Reprocess all documents
+python example_usage.py --ingest --force-reprocess
+```
+
+**Verify the fix**:
+```bash
+python example_usage.py --ask "What is my HbA1c value?"
+# Should return: 5.7%
+```
+
+#### 13. Markdown Files Contain Raw JSON Instead of Text
+
+**Symptoms**: The processed `.md` files in `data/processed_markdown/` contain Docling's internal JSON format instead of readable markdown.
+
+**Example of incorrect output**:
+```json
+{"schema_name": "DoclingDocument", "version": "1.0.0", "body": {...}}
+```
+
+**Cause**: The `export_to_markdown()` method wasn't being called correctly.
+
+**Solution**: The fix in `document_processor.py` ensures proper markdown export:
+```python
+# Correct approach
+markdown_content = result.document.export_to_markdown()
+```
+
+**To reprocess**:
+```bash
+python example_usage.py --ingest --force-reprocess
+```
+
+#### 14. Ollama Connection Refused
+
+**Symptoms**: `ConnectionRefusedError` when using `--ask` command.
+
+**Cause**: Ollama service is not running.
+
+**Solution**:
+```bash
+# Start Ollama service
+ollama serve
+
+# In another terminal, verify it's running
+ollama list
+
+# If model not installed, pull it
+ollama pull gemma3:12b
+```
+
+#### 15. Low Similarity Scores for Obvious Matches
+
+**Symptoms**: Queries that should match return low scores (<0.3) or no results.
+
+**Possible causes and solutions**:
+
+1. **Check embedding model is loaded**:
+   ```python
+   from src.embedding_generator import EmbeddingGenerator
+   gen = EmbeddingGenerator()
+   print(gen.device)  # Should show 'cuda' or 'cpu'
+   ```
+
+2. **Verify document content**:
+   ```bash
+   # Search for specific terms
+   grep -r "HbA1c" data/processed_markdown/  # Linux/macOS
+   findstr /s "HbA1c" data\processed_markdown\*  # Windows
+   ```
+
+3. **Lower the retrieval threshold**:
+   ```python
+   result = pipeline.query("your query", threshold=0.1)  # Lower threshold
+   ```
+
+#### 16. Docling Fails on Specific PDFs
+
+**Symptoms**: Certain PDFs fail to process while others work fine.
+
+**Common causes**:
+- Password-protected PDFs
+- Corrupted PDF files
+- Extremely large PDFs (>1000 pages)
+- PDFs with unusual encodings
+
+**Solutions**:
+```bash
+# Check if PDF is valid
+pdfinfo your_document.pdf  # Requires poppler-utils
+
+# For password-protected PDFs, remove protection first
+qpdf --decrypt input.pdf output.pdf
+
+# For very large PDFs, split them
+pdftk large.pdf burst  # Creates individual page PDFs
+```
+
+---
+
+### Debugging Tips
+
+#### Enable Verbose Logging
+
+```python
+import logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+```
+
+#### Test Individual Components
+
+```python
+# Test Docling
+from docling.document_converter import DocumentConverter
+converter = DocumentConverter()
+result = converter.convert("test.pdf")
+print(result.document.export_to_markdown()[:500])
+
+# Test Embeddings
+from src.embedding_generator import EmbeddingGenerator
+gen = EmbeddingGenerator()
+emb = gen.generate_embeddings(["test sentence"])
+print(f"Embedding shape: {emb.shape}")
+
+# Test Vector Store
+from src.vector_store import VectorStore
+vs = VectorStore("data/vector_store")
+print(f"Document count: {vs.get_count()}")
+```
+
+#### Check Chunk Quality
+
+```python
+from src.text_chunker import TextChunker
+
+chunker = TextChunker(chunk_size=1500)
+with open("data/processed_markdown/your_doc.md") as f:
+    text = f.read()
+
+chunks = chunker.chunk_text(text, "your_doc")
+for i, chunk in enumerate(chunks[:5]):
+    print(f"\n--- Chunk {i} ({chunk.metadata}) ---")
+    print(chunk.content[:200])
+```
+
+--- Getting Help
 
 If you encounter issues not listed here:
 
