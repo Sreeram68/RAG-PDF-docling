@@ -9,7 +9,7 @@ import json
 import hashlib
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -150,7 +150,7 @@ class DocumentProcessor:
         self.manifest["processed_files"][file_key] = self._get_file_info(pdf_path)
         self._save_manifest()
     
-    def process_pdf(self, pdf_path: str) -> ProcessedDocument:
+    def process_pdf(self, pdf_path: Union[str, Path]) -> ProcessedDocument:
         """
         Process a single PDF file and convert to Markdown.
         

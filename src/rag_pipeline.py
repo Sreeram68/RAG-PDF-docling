@@ -127,7 +127,7 @@ class RAGPipeline:
                     texts=texts,
                     embeddings=[emb.dense_embedding for emb in embeddings],
                     source_files=[chunk.source_file for chunk in chunks],
-                    metadatas=[chunk.metadata for chunk in chunks]
+                    metadatas=[chunk.metadata or {} for chunk in chunks]
                 )
                 
                 logger.info(f"Ingested {doc.title}: {len(chunks)} chunks")
@@ -174,7 +174,7 @@ class RAGPipeline:
             texts=texts,
             embeddings=[emb.dense_embedding for emb in embeddings],
             source_files=[chunk.source_file for chunk in chunks],
-            metadatas=[chunk.metadata for chunk in chunks]
+            metadatas=[chunk.metadata or {} for chunk in chunks]
         )
         
         return {
