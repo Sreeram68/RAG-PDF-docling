@@ -6,25 +6,25 @@ This document describes the design, concepts, and logical flow of the RAG (Retri
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           RAG-PDF-docling Pipeline                               │
+│                           RAG-PDF-docling Pipeline                              │
 ├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
+│                                                                                 │
 │   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐  │
-│   │   Docling    │───▶│    Text      │───▶│   BGE-M3     │───▶│   ChromaDB   │  │
+│   │   Docling    │───▶│    Text     │───▶│   BGE-M3     │───▶│   ChromaDB  │  │
 │   │  (PDF→MD)    │    │   Chunker    │    │  Embeddings  │    │ Vector Store │  │
 │   └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘  │
-│         │                    │                   │                    │          │
-│         ▼                    ▼                   ▼                    ▼          │
+│         │                    │                   │                    │         │
+│         ▼                    ▼                   ▼                    ▼         │
 │   ┌──────────────────────────────────────────────────────────────────────────┐  │
-│   │                         RAG Pipeline Orchestrator                         │  │
+│   │                         RAG Pipeline Orchestrator                        │  │
 │   └──────────────────────────────────────────────────────────────────────────┘  │
-│                                      │                                           │
-│                                      ▼                                           │
-│                            ┌──────────────────┐                                  │
-│                            │   Ollama LLM     │                                  │
-│                            │  (gemma3:12b)    │                                  │
-│                            └──────────────────┘                                  │
-│                                                                                  │
+│                                      │                                          │
+│                                      ▼                                          │
+│                            ┌──────────────────┐                                 │
+│                            │   Ollama LLM     │                                 │
+│                            │  (gemma3:12b)    │                                 │
+│                            └──────────────────┘                                 │
+│                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -38,7 +38,7 @@ This document describes the design, concepts, and logical flow of the RAG (Retri
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                          DocumentProcessor                                       │
+│                          DocumentProcessor                                      │
 │  ┌────────────────────────────────────────────────────────────────────────────┐ │
 │  │  • IBM Docling - Vision-based document understanding                       │ │
 │  │  • OCR for scanned documents                                               │ │
@@ -46,19 +46,19 @@ This document describes the design, concepts, and logical flow of the RAG (Retri
 │  │  • Layout analysis                                                         │ │
 │  │  • Export to clean Markdown                                                │ │
 │  └────────────────────────────────────────────────────────────────────────────┘ │
-│                                                                                  │
+│                                                                                 │
 │  Input:  PDF files (scanned or native)                                          │
-│  Output: Markdown files with preserved structure                                 │
+│  Output: Markdown files with preserved structure                                │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         data/processed_markdown/*.md                             │
+│                         data/processed_markdown/*.md                            │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                             TextChunker                                          │
+│                             TextChunker                                         │
 │  ┌────────────────────────────────────────────────────────────────────────────┐ │
 │  │  Table-Aware Semantic Chunking Strategy:                                   │ │
 │  │                                                                            │ │
@@ -68,14 +68,14 @@ This document describes the design, concepts, and logical flow of the RAG (Retri
 │  │  4. Split large sections at paragraph/sentence boundaries                  │ │
 │  │  5. Merge small adjacent chunks                                            │ │
 │  └────────────────────────────────────────────────────────────────────────────┘ │
-│                                                                                  │
-│  Input:  Markdown text                                                           │
-│  Output: List of TextChunk objects with metadata                                 │
+│                                                                                 │
+│  Input:  Markdown text                                                          │
+│  Output: List of TextChunk objects with metadata                                │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                          EmbeddingGenerator                                      │
+│                          EmbeddingGenerator                                     │
 │  ┌────────────────────────────────────────────────────────────────────────────┐ │
 │  │  BGE-M3 Model (BAAI/bge-m3):                                               │ │
 │  │                                                                            │ │
@@ -84,14 +84,14 @@ This document describes the design, concepts, and logical flow of the RAG (Retri
 │  │  • Up to 8192 token context                                                │ │
 │  │  • GPU-accelerated (CUDA)                                                  │ │
 │  └────────────────────────────────────────────────────────────────────────────┘ │
-│                                                                                  │
-│  Input:  Text chunks                                                             │
-│  Output: 1024-dim embedding vectors                                              │
+│                                                                                 │
+│  Input:  Text chunks                                                            │
+│  Output: 1024-dim embedding vectors                                             │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                             VectorStore                                          │
+│                             VectorStore                                         │
 │  ┌────────────────────────────────────────────────────────────────────────────┐ │
 │  │  ChromaDB:                                                                 │ │
 │  │                                                                            │ │
@@ -100,8 +100,8 @@ This document describes the design, concepts, and logical flow of the RAG (Retri
 │  │  • Metadata filtering                                                      │ │
 │  │  • Collection: "documents"                                                 │ │
 │  └────────────────────────────────────────────────────────────────────────────┘ │
-│                                                                                  │
-│  Storage: data/vector_store/                                                     │
+│                                                                                 │
+│  Storage: data/vector_store/                                                    │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -259,33 +259,33 @@ This document describes the design, concepts, and logical flow of the RAG (Retri
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                        BEFORE: Naive Chunking                                    │
+│                        BEFORE: Naive Chunking                                   │
 ├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│   Original Table:                                                                │
+│                                                                                 │
+│   Original Table:                                                               │
 │   ┌────────────────────────────────────────────────┐                            │
-│   │ | Test    | Result | Unit  | Reference |      │                            │
-│   │ |---------|--------|-------|-----------|      │                            │
-│   │ | HbA1c   | 5.7    | %     | <5.7      |      │                            │
-│   │ | Glucose | 106    | mg/dL | 70-110    |      │                            │
+│   │ | Test    | Result | Unit  | Reference |      │                             │
+│   │ |---------|--------|-------|-----------|      │                             │
+│   │ | HbA1c   | 5.7    | %     | <5.7      |      │                             │
+│   │ | Glucose | 106    | mg/dL | 70-110    |      │                             │
 │   └────────────────────────────────────────────────┘                            │
-│                                                                                  │
+│                                                                                 │
 │   ❌ Split into chunks (BROKEN):                                                │
 │   ┌──────────────────────┐  ┌──────────────────────┐                            │
 │   │ Chunk 1:             │  │ Chunk 2:             │                            │
-│   │ | Test | Result |    │  │ | Glucose | 106 |   │                            │
+│   │ | Test | Result |    │  │ | Glucose | 106 |   │                             │
 │   │ |------|--------|    │  │                      │                            │
 │   │ | HbA1c | 5.7 |      │  │ (missing context!)   │                            │
 │   └──────────────────────┘  └──────────────────────┘                            │
-│                                                                                  │
-│   Problem: Row split from header, context lost                                   │
-│                                                                                  │
+│                                                                                 │
+│   Problem: Row split from header, context lost                                  │
+│                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                        AFTER: Table-Aware Chunking                               │
+│                        AFTER: Table-Aware Chunking                              │
 ├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
+│                                                                                 │
 │   ✅ Table kept as single chunk:                                                │
 │   ┌────────────────────────────────────────────────┐                            │
 │   │ Chunk 1 (type: table):                         │                            │
