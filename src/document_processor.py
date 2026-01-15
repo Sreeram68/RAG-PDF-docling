@@ -172,10 +172,16 @@ class DocumentProcessor:
         # Export to Markdown format
         markdown_content = result.document.export_to_markdown()
         
-        # Count extracted elements
+        # Count extracted elements - handle both properties and methods
         tables_count = len(result.document.tables) if hasattr(result.document, 'tables') else 0
         images_count = len(result.document.pictures) if hasattr(result.document, 'pictures') else 0
-        num_pages = result.document.num_pages if hasattr(result.document, 'num_pages') else 0
+        
+        # Handle num_pages which might be a method or property
+        if hasattr(result.document, 'num_pages'):
+            np = result.document.num_pages
+            num_pages = np() if callable(np) else np
+        else:
+            num_pages = len(result.document.pages) if hasattr(result.document, 'pages') else 0
         
         # Create processed document
         processed_doc = ProcessedDocument(

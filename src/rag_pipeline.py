@@ -5,6 +5,7 @@ Provides a complete pipeline for building a RAG-powered Q&A system.
 """
 
 import logging
+import requests
 from pathlib import Path
 from typing import Optional
 
@@ -37,8 +38,8 @@ class RAGPipeline:
         source_dir: str = "data/source_pdfs",
         output_dir: str = "data/processed_markdown",
         vector_store_dir: str = "data/vector_store",
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200,
+        chunk_size: int = 1500,  # Increased to capture wider tables from health reports
+        chunk_overlap: int = 300,
         top_k: int = 5
     ):
         """
@@ -221,6 +222,106 @@ Answer:"""
         
         return prompt_template
     
+    def answer(
+        self,
+        question: str,
+        model: str = "gemma3:12b",
+        ollama_url: str = "http://localhost:11434",
+        top_k: Optional[int] = None
+    ) -> dict:
+        """
+        Answer a question using retrieved context and an LLM.
+        
+        Args:
+            question: User question
+            model: Ollama model to use (default: gemma3:12b)
+            ollama_url: Ollama server URL
+            top_k: Number of documents to retrieve
+            
+        Returns:
+            Dict with answer, sources, and metadata
+        """
+        # Use fewer documents to fit in LLM context window
+        k = top_k or 5  # Reduced to prevent timeout
+        
+        # Temporarily lower threshold to get more context for LLM
+        original_threshold = self.retriever.score_threshold
+        self.retriever.score_threshold = 0.3  # Lower threshold for answer generation
+        
+        # Retrieve relevant context
+        result = self.retriever.retrieve(question, top_k=k)
+        
+        # Restore original threshold
+        self.retriever.score_threshold = original_threshold
+        
+        if not result.results:
+            return {
+                "question": question,
+                "answer": "No relevant documents found to answer this question.",
+                "sources": [],
+                "context_used": ""
+            }
+        
+        # Truncate context to prevent LLM timeout (max ~4000 chars)
+        context = result.context
+        if len(context) > 4000:
+            context = context[:4000] + "\n\n[Context truncated...]"
+        
+        # Build focused prompt for pointed answers
+        prompt = f"""Answer the question based on the medical test results below. Look for test values in tables.
+
+Context:
+{context}
+
+Question: {question}
+Answer (be brief and direct):"""
+
+        try:
+            # Call Ollama API
+            response = requests.post(
+                f"{ollama_url}/api/generate",
+                json={
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.1,  # Low temperature for factual answers
+                        "num_predict": 200   # Limit response length
+                    }
+                },
+                timeout=180  # Increased timeout
+            )
+            response.raise_for_status()
+            answer = response.json().get("response", "").strip()
+            
+        except requests.exceptions.ConnectionError:
+            logger.error("Could not connect to Ollama. Is it running?")
+            return {
+                "question": question,
+                "answer": "Error: Could not connect to Ollama. Please ensure Ollama is running (run 'ollama serve' in terminal).",
+                "sources": [],
+                "context_used": result.context
+            }
+        except Exception as e:
+            logger.error(f"Error calling LLM: {e}")
+            return {
+                "question": question,
+                "answer": f"Error generating answer: {str(e)}",
+                "sources": [],
+                "context_used": result.context
+            }
+        
+        # Extract sources
+        sources = list(set(r.source_file for r in result.results))
+        
+        return {
+            "question": question,
+            "answer": answer,
+            "sources": sources,
+            "num_chunks_used": len(result.results),
+            "top_score": result.results[0].score if result.results else 0
+        }
+    
     def get_stats(self) -> dict:
         """Get current pipeline statistics."""
         processing_status = self.document_processor.get_processing_status()
@@ -238,7 +339,9 @@ def main():
     parser = argparse.ArgumentParser(description="RAG Pipeline with Docling and BGE-M3")
     parser.add_argument("--ingest", action="store_true", help="Ingest documents from source directory")
     parser.add_argument("--force-reprocess", action="store_true", help="Force reprocess all PDFs (use with --ingest)")
-    parser.add_argument("--query", type=str, help="Query the RAG system")
+    parser.add_argument("--query", type=str, help="Query the RAG system (returns raw chunks)")
+    parser.add_argument("--ask", type=str, help="Ask a question and get a focused answer using LLM")
+    parser.add_argument("--model", type=str, default="gemma3:12b", help="Ollama model to use (default: gemma3:12b)")
     parser.add_argument("--stats", action="store_true", help="Show pipeline statistics")
     parser.add_argument("--status", action="store_true", help="Show file processing status")
     
@@ -263,6 +366,23 @@ def main():
         result = pipeline.query(args.query)
         print(f"\nQuery: {args.query}")
         print(f"\nRelevant Context:\n{result.context}")
+    
+    if args.ask:
+        print(f"\n🔍 Question: {args.ask}")
+        print(f"Using model: {args.model}")
+        print("Searching and generating answer...\n")
+        
+        result = pipeline.answer(args.ask, model=args.model)
+        
+        print("=" * 60)
+        print("📝 ANSWER:")
+        print("=" * 60)
+        print(result["answer"])
+        print("\n" + "-" * 60)
+        print(f"📚 Sources: {', '.join(result['sources'])}")
+        print(f"📊 Chunks used: {result.get('num_chunks_used', 'N/A')}")
+        if isinstance(result.get('top_score'), (int, float)):
+            print(f"🎯 Top relevance score: {result.get('top_score'):.3f}")
     
     if args.stats:
         stats = pipeline.get_stats()

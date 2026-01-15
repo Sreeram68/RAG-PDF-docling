@@ -3,10 +3,17 @@ Example usage of the RAG Pipeline.
 Demonstrates document ingestion and querying.
 """
 
+import argparse
 from src.rag_pipeline import RAGPipeline
 
 
 def main():
+    parser = argparse.ArgumentParser(description="RAG Pipeline Example Usage")
+    parser.add_argument("--ingest", action="store_true", help="Ingest documents")
+    parser.add_argument("--force-reprocess", action="store_true", help="Force reprocess all PDFs")
+    parser.add_argument("--ask", type=str, help="Ask a question and get an answer using LLM")
+    args = parser.parse_args()
+
     # Initialize the RAG pipeline
     print("Initializing RAG Pipeline...")
     pipeline = RAGPipeline(
@@ -24,13 +31,24 @@ def main():
     print(f"  - Total documents in vector store: {stats['total_documents']}")
     print(f"  - Sources: {stats['sources']}")
     
-    # Ingest documents if vector store is empty
-    if stats['total_documents'] == 0:
+    # Handle --ask argument (LLM-powered answers)
+    if args.ask:
+        print(f"\n📝 Question: {args.ask}")
+        print("-" * 40)
+        answer = pipeline.answer(args.ask)
+        print(f"\n💡 Answer:\n{answer}")
+        return
+    
+    # Ingest documents if vector store is empty OR --ingest flag is passed
+    if stats['total_documents'] == 0 or args.ingest:
         print("\n" + "="*50)
-        print("Vector store is empty. Ingesting documents...")
+        if args.force_reprocess:
+            print("Force reprocessing all documents...")
+        else:
+            print("Ingesting documents...")
         print("="*50)
         
-        ingestion_stats = pipeline.ingest_documents()
+        ingestion_stats = pipeline.ingest_documents(force_reprocess=args.force_reprocess)
         print(f"\nIngestion complete:")
         print(f"  - PDFs processed: {ingestion_stats['pdfs_processed']}")
         print(f"  - Chunks created: {ingestion_stats['chunks_created']}")
