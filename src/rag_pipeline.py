@@ -243,20 +243,30 @@ Answer:"""
         """
         # Detect if this is a health/medical query (for retrieval optimization)
         health_keywords = ['hemoglobin', 'haemoglobin', 'hba1c', 'glucose', 'cholesterol',
-                          'blood', 'test', 'health', 'medical', 'sugar', 'pressure',
+                          'blood', 'test', 'medical', 'sugar', 'pressure',
                           'creatinine', 'triglyceride', 'platelet', 'rbc', 'wbc',
                           'iron', 'vitamin', 'thyroid', 'liver', 'kidney']
+        # Removed 'health' from keywords to avoid false positives with "healthcheck" filenames
         is_health_query = any(kw in question.lower() for kw in health_keywords)
+        
+        # Detect financial/business queries
+        financial_keywords = ['asset', 'revenue', 'income', 'profit', 'loss', 'equity',
+                             'balance sheet', 'cash flow', 'earnings', 'dividend',
+                             'liabilities', 'shareholders', 'ebitda', 'margin',
+                             'annual report', 'financial', 'fiscal', 'quarter']
+        is_financial_query = any(kw in question.lower() for kw in financial_keywords)
         
         # Check for multi-year comparison queries
         years_in_query = [year for year in ['2021', '2022', '2023', '2024', '2025', '2026'] if year in question]
         is_comparison = len(years_in_query) > 1 or 'compare' in question.lower()
         
-        # Use more documents for health queries or comparisons to ensure we get all relevant docs
+        # Use more documents for specialized queries to ensure we get all relevant docs
         if top_k:
             k = top_k
         elif is_health_query and is_comparison:
             k = 50  # Need more for multi-year health comparisons
+        elif is_financial_query:
+            k = 100  # Financial docs have table data that scores low semantically, need more candidates
         elif is_health_query:
             k = 30
         else:
@@ -264,7 +274,12 @@ Answer:"""
         
         # Temporarily lower threshold to get more context for LLM
         original_threshold = self.retriever.score_threshold
-        self.retriever.score_threshold = 0.05 if is_comparison else (0.1 if is_health_query else 0.2)
+        if is_comparison:
+            self.retriever.score_threshold = 0.05
+        elif is_health_query or is_financial_query:
+            self.retriever.score_threshold = 0.1
+        else:
+            self.retriever.score_threshold = 0.2
         
         # For multi-year comparison queries, do separate searches per year
         if is_health_query and len(years_in_query) > 1:
