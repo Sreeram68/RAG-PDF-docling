@@ -8,7 +8,7 @@ import os
 import json
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any, cast
 from dataclasses import dataclass, asdict
 
 import numpy as np
@@ -115,7 +115,7 @@ class VectorStore:
             ids=chunk_ids,
             documents=texts,
             embeddings=embeddings_list,
-            metadatas=metadatas
+            metadatas=cast(Any, metadatas)
         )
         
         logger.info(f"Added {len(chunk_ids)} documents to vector store")
@@ -150,7 +150,7 @@ class VectorStore:
         results = self.collection.query(
             query_embeddings=[query_emb_list],
             n_results=top_k,
-            where=where_filter,
+            where=cast(Any, where_filter),
             include=["documents", "metadatas", "distances"]
         )
         
@@ -162,12 +162,18 @@ class VectorStore:
                 distance = results['distances'][0][i] if results['distances'] else 0
                 score = 1 - distance  # Convert distance to similarity
                 
+                docs = results['documents']
+                metas = results['metadatas']
+                content = docs[0][i] if docs else ''
+                metadata = metas[0][i] if metas else {}
+                source = str(metadata.get('source_file', 'unknown')) if metadata else 'unknown'
+                
                 search_results.append(SearchResult(
                     chunk_id=chunk_id,
-                    content=results['documents'][0][i],
+                    content=content,
                     score=score,
-                    source_file=results['metadatas'][0][i].get('source_file', 'unknown'),
-                    metadata=results['metadatas'][0][i]
+                    source_file=source,
+                    metadata=dict(metadata) if metadata else None
                 ))
         
         logger.info(f"Search returned {len(search_results)} results")
@@ -199,10 +205,11 @@ class VectorStore:
     def get_all_sources(self) -> list[str]:
         """Get list of all unique source files in the store."""
         results = self.collection.get(include=["metadatas"])
-        sources = set()
-        for metadata in results.get('metadatas', []):
+        sources: set[str] = set()
+        metadatas = results.get('metadatas') or []
+        for metadata in metadatas:
             if metadata and 'source_file' in metadata:
-                sources.add(metadata['source_file'])
+                sources.add(str(metadata['source_file']))
         return list(sources)
     
     def count(self) -> int:

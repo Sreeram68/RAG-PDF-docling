@@ -41,6 +41,32 @@ Traditional PDF extraction tools often fail with:
   - Metadata filtering
   - Easy to scale
 
+## 🤔 Why Not LangChain?
+
+This project intentionally uses a **custom implementation** instead of LangChain. Here's why:
+
+| Aspect | Custom Implementation | LangChain |
+|--------|----------------------|-----------|
+| **Control** | Full visibility into chunking, retrieval, and scoring | Abstracted away, harder to debug |
+| **Dependencies** | ~5 packages | ~20+ packages with frequent breaking changes |
+| **Customization** | Easy to add table-aware chunking, keyword boosting | Requires workarounds or custom classes |
+| **Learning** | Understand *why* RAG works | Know *how* to call APIs |
+| **Performance** | Optimized for your specific use case | Generic, one-size-fits-all |
+
+### Custom Features Not Easily Achievable with LangChain:
+
+1. **Table-Aware Chunking**: Keeps financial tables intact (doesn't split mid-row)
+2. **Hybrid Keyword Boosting**: Re-ranks results using keyword matching for tabular data
+3. **Year-Aware Retrieval**: Detects years in queries and retrieves from matching documents
+4. **Query-Type Detection**: Different retrieval strategies for health vs financial queries
+5. **Interleaved Multi-Year Context**: Balances context from multiple years for comparison queries
+
+### When to Consider LangChain:
+
+- Rapid prototyping with multiple LLM providers (OpenAI, Anthropic, etc.)
+- Built-in agents and tool-use capabilities
+- You don't need fine-grained control over retrieval behavior
+
 ## 📁 Project Structure
 
 ```

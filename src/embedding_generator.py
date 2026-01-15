@@ -154,13 +154,17 @@ class EmbeddingGenerator:
         
         # Package results
         results = []
+        dense_vecs = embeddings.get('dense_vecs', [])
+        lexical_weights = embeddings.get('lexical_weights', [])
+        colbert_vecs = embeddings.get('colbert_vecs', [])
+        
         for i, text in enumerate(texts):
             doc_embedding = DocumentEmbedding(
                 chunk_id=f"chunk_{i}",
                 text=text,
-                dense_embedding=embeddings['dense_vecs'][i] if return_dense else None,
-                sparse_embedding=embeddings['lexical_weights'][i] if return_sparse else None,
-                colbert_embedding=embeddings['colbert_vecs'][i] if return_colbert else None
+                dense_embedding=dense_vecs[i] if return_dense and i < len(dense_vecs) else None,  # type: ignore
+                sparse_embedding=dict(lexical_weights[i]) if return_sparse and i < len(lexical_weights) else None,  # type: ignore
+                colbert_embedding=colbert_vecs[i] if return_colbert and i < len(colbert_vecs) else None  # type: ignore
             )
             results.append(doc_embedding)
         
