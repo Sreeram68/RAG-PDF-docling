@@ -241,15 +241,73 @@ Answer:"""
         Returns:
             Dict with answer, sources, and metadata
         """
-        # Use fewer documents to fit in LLM context window
-        k = top_k or 5  # Reduced to prevent timeout
+        # Detect if this is a health/medical query (for retrieval optimization)
+        health_keywords = ['hemoglobin', 'haemoglobin', 'hba1c', 'glucose', 'cholesterol',
+                          'blood', 'test', 'health', 'medical', 'sugar', 'pressure',
+                          'creatinine', 'triglyceride', 'platelet', 'rbc', 'wbc',
+                          'iron', 'vitamin', 'thyroid', 'liver', 'kidney']
+        is_health_query = any(kw in question.lower() for kw in health_keywords)
+        
+        # Check for multi-year comparison queries
+        years_in_query = [year for year in ['2021', '2022', '2023', '2024', '2025', '2026'] if year in question]
+        is_comparison = len(years_in_query) > 1 or 'compare' in question.lower()
+        
+        # Use more documents for health queries or comparisons to ensure we get all relevant docs
+        if top_k:
+            k = top_k
+        elif is_health_query and is_comparison:
+            k = 50  # Need more for multi-year health comparisons
+        elif is_health_query:
+            k = 30
+        else:
+            k = 15
         
         # Temporarily lower threshold to get more context for LLM
         original_threshold = self.retriever.score_threshold
-        self.retriever.score_threshold = 0.3  # Lower threshold for answer generation
+        self.retriever.score_threshold = 0.05 if is_comparison else (0.1 if is_health_query else 0.2)
         
-        # Retrieve relevant context
-        result = self.retriever.retrieve(question, top_k=k)
+        # For multi-year comparison queries, do separate searches per year
+        if is_health_query and len(years_in_query) > 1:
+            # Extract the core health term from the question
+            core_terms = []
+            for kw in health_keywords:
+                if kw in question.lower():
+                    core_terms.append(kw)
+            core_query = ' '.join(core_terms) if core_terms else question
+            
+            # Search for each year separately
+            all_results = []
+            base_result = None
+            for year in years_in_query:
+                year_query = f"{core_query} {year}"
+                year_result = self.retriever.retrieve(year_query, top_k=20)
+                if base_result is None:
+                    base_result = year_result
+                # Tag results and add
+                for r in year_result.results:
+                    if year in r.source_file:  # Only add if from matching year
+                        all_results.append(r)
+            
+            # Deduplicate by chunk ID (approximate by content hash)
+            seen = set()
+            result_results = []
+            for r in all_results:
+                key = hash(r.content[:200])
+                if key not in seen:
+                    seen.add(key)
+                    result_results.append(r)
+            
+            # Create a result-like object with combined results
+            from src.retriever import RetrievalResult
+            context = "\n\n---\n\n".join([f"[From: {r.source_file}]\n{r.content}" for r in result_results[:10]])
+            result = RetrievalResult(
+                query=question,
+                results=result_results,
+                context=context
+            )
+        else:
+            # Standard single search
+            result = self.retriever.retrieve(question, top_k=k)
         
         # Restore original threshold
         self.retriever.score_threshold = original_threshold
@@ -262,13 +320,77 @@ Answer:"""
                 "context_used": ""
             }
         
-        # Truncate context to prevent LLM timeout (max ~4000 chars)
-        context = result.context
-        if len(context) > 4000:
-            context = context[:4000] + "\n\n[Context truncated...]"
+        # Filter results to prioritize documents matching years mentioned in question
+        filtered_results = result.results
+        years_mentioned = years_in_query  # Reuse already-extracted years
         
-        # Build focused prompt for pointed answers
-        prompt = f"""Answer the question based on the medical test results below. Look for test values in tables.
+        if is_health_query:
+            # For health queries, prioritize health check documents
+            health_docs = [r for r in result.results if 'healthcheck' in r.source_file.lower() or 'health' in r.source_file.lower()]
+            other_docs = [r for r in result.results if 'healthcheck' not in r.source_file.lower() and 'health' not in r.source_file.lower()]
+            
+            if years_mentioned:
+                # Further filter health docs by year
+                year_matched_health = [r for r in health_docs if any(year in r.source_file for year in years_mentioned)]
+                other_health = [r for r in health_docs if not any(year in r.source_file for year in years_mentioned)]
+                
+                # For comparison queries, interleave results from different years
+                if is_comparison and len(years_mentioned) > 1:
+                    # Group by year
+                    by_year = {year: [] for year in years_mentioned}
+                    for r in year_matched_health:
+                        for year in years_mentioned:
+                            if year in r.source_file:
+                                by_year[year].append(r)
+                                break
+                    
+                    # Interleave: take from each year alternately
+                    interleaved = []
+                    max_len = max(len(v) for v in by_year.values()) if by_year else 0
+                    for i in range(max_len):
+                        for year in years_mentioned:
+                            if i < len(by_year[year]):
+                                interleaved.append(by_year[year][i])
+                    filtered_results = interleaved + other_health + other_docs[:2]
+                else:
+                    filtered_results = year_matched_health + other_health + other_docs[:2]
+            else:
+                filtered_results = health_docs + other_docs[:2]
+        elif years_mentioned:
+            # For non-health queries with years, use existing logic
+            matching = [r for r in result.results if any(year in r.source_file for year in years_mentioned)]
+            non_matching = [r for r in result.results if not any(year in r.source_file for year in years_mentioned)]
+            filtered_results = matching + non_matching[:3]
+        
+        # Rebuild context with prioritized results
+        # Use more chunks for comparison queries to capture data from multiple years
+        num_chunks = 15 if is_comparison else 10
+        context_parts = []
+        for r in filtered_results[:num_chunks]:
+            context_parts.append(f"[From: {r.source_file}]\n{r.content}")
+        context = "\n\n---\n\n".join(context_parts)
+        
+        # Truncate if still too long
+        if len(context) > 16000:  # Increased for comparison queries
+            context = context[:16000] + "\n\n[Context truncated...]"
+        
+        # Build focused prompt - different for comparison vs single queries
+        if is_comparison and is_health_query:
+            prompt = f"""You are analyzing medical test results from multiple years. 
+Find the requested test values for EACH year mentioned in the question.
+Look carefully at EVERY document section - each [From: ...] section may contain data from a different year.
+The document name contains the year (e.g., "2021" or "2024").
+
+Documents:
+{context}
+
+Question: {question}
+
+Instructions: Find the specific test value for EACH year. Report values from all years found.
+Answer:"""
+        else:
+            prompt = f"""Answer the question based on the medical test results below. Look for test values in tables.
+Pay attention to the document source names which contain dates (e.g., "2021" or "2024").
 
 Context:
 {context}
@@ -286,7 +408,7 @@ Answer (be brief and direct):"""
                     "stream": False,
                     "options": {
                         "temperature": 0.1,  # Low temperature for factual answers
-                        "num_predict": 200   # Limit response length
+                        "num_predict": 300 if is_comparison else 200   # More for comparisons
                     }
                 },
                 timeout=180  # Increased timeout
